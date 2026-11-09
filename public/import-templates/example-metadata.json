@@ -1,0 +1,19 @@
+{
+  "name": "Villa Example One",
+  "price_label": "€2,450,000",
+  "location": "Nueva Andalucía",
+  "bedrooms": 4,
+  "bathrooms": 4,
+  "internal_area": "520 m²",
+  "plot_size": "1,200 m²",
+  "outdoor_space": "Terrace 180 m²",
+  "property_type": "Villa",
+  "listing_type": "For Sale",
+  "status": "Available",
+  "pets": "Upon request",
+  "short_description": "A refined contemporary villa in a private gated community.",
+  "long_description": "Full long description goes here. Multiple sentences are fine.",
+  "features": ["Pool", "Sea view", "Garage", "Garden"],
+  "instagram_url": "https://instagram.com/example",
+  "tiktok_url": "https://tiktok.com/@example"
+}
