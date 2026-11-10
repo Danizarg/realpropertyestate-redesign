@@ -28,8 +28,21 @@ Owner-area pages (`/login`, `/dashboard/*`) are unchanged and keep their origina
 
 | Service | How to enable |
 |---|---|
-| Concierge voice (narration + concierge replies) | The same voice as Zouza's Suza: OpenAI `gpt-4o-mini-tts`, voice `marin`, with soft S/Z and a gentle room echo shaped on the server (`lib/audio/suza-voice.ts`). Set `VOICE_TTS_API_KEY` (or `OPENAI_API_KEY`) on the server only. Without a key the browser's own voice is used. ElevenLabs remains an optional alternative (`ELEVENLABS_API_KEY` + `ELEVENLABS_VOICE_ID`). |
+| Live concierge voice (optional) | Not needed — the site's voice is pre-recorded. A future owner who wants every changing concierge reply spoken can set their own `VOICE_TTS_API_KEY` server-side (`app/api/voice`). |
 | AI concierge backend | Implement the `ConciergeEngine` interface in `lib/concierge/engine.ts` against your own server route (never call an AI provider from the browser with a secret key) and return it from `createConciergeEngine()`. |
+
+### The voice (recorded locally — no API, no key)
+
+The intro narration and the concierge's standard phrases are **pre-recorded audio files** in `public/voice/`. The website simply plays them: no API, no key, no account, no running cost.
+
+- Voice: **Emma** (`bf_emma`) from **Kokoro-82M**, an open-source model (Apache-2.0) run locally on a computer, with softened S/Z sounds and a gentle sense of space (`lib/audio/voice-shaping.ts`). "Marbella" and "Massimo Michelino" are respelled for the voice so they're pronounced the Spanish/Italian way (`tools/voice/render.mts`).
+- The lines are listed in `lib/voice-lines.ts`. Concierge replies speak their recorded opening sentence; the details appear on screen.
+- To re-record after changing a line (runs offline after a one-time ~90 MB model download):
+  ```bash
+  cd tools/voice && npm install && npm run render -- --voice=bf_emma
+  ```
+  Then commit `public/voice/` and `lib/audio/voice-clips.json`. `npm run preview` renders a sample in several voices to compare.
+- The voice is AI-generated (synthetic); present it as such where required.
 
 ### Structure
 

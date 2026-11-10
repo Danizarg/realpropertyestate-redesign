@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local voice-recording tool (own package, not part of the site):
+    "tools/**",
   ]),
 ]);
 

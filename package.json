@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "voice:render": "npm --prefix tools/voice run render",
+    "voice:preview": "npm --prefix tools/voice run preview"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

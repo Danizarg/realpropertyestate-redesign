@@ -7,17 +7,14 @@ import { markIntroComplete, resetIntroComplete } from "@/components/motion/trans
 import { useSound, AMBIENT_LEVEL, SoundBars } from "@/components/experience/SoundProvider";
 import { prefetchSpeech, speak, stopSpeaking, unlockSpeech, type SpeakHandle } from "@/lib/audio/voice";
 import { IMAGERY, unsplash } from "@/lib/media-library";
+import { INTRO_NARRATION } from "@/lib/voice-lines";
 import { prefersReducedMotion, readPref, STORAGE, writePref } from "@/lib/experience";
 import { REPLAY_EVENT } from "./replay";
 import type { HomepageCoverSettings } from "@/lib/types";
 import { HERO_SCRIM } from "@/lib/scrims";
 import { cn } from "@/lib/utils";
 
-const NARRATION = [
-  "Welcome to Marbella.",
-  "A place where extraordinary living meets timeless beauty.",
-  "Discover your next chapter with Real Property Estate.",
-];
+const NARRATION = INTRO_NARRATION;
 
 const SCENE_IMAGES = [IMAGERY.banusDusk, IMAGERY.stairsToSea];
 

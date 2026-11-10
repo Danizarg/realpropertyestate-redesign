@@ -1,0 +1,13 @@
+{
+  "name": "rpe-voice-tools",
+  "private": true,
+  "type": "module",
+  "description": "Records the site's voice lines locally with the open-source Kokoro model (no API, no key). Not part of the website build.",
+  "scripts": {
+    "preview": "node render.mts --preview",
+    "render": "node render.mts"
+  },
+  "dependencies": {
+    "kokoro-js": "1.2.1"
+  }
+}

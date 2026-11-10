@@ -1,12 +1,17 @@
 /**
  * Voice output for the intro narration and the concierge.
  *
- * Provider order:
- *  1. "server" — a premium TTS provider behind /api/voice (see README; only
- *     active when the provider's key is set on the server, never in the client).
- *  2. "browser" — the Web Speech API, using the most natural installed voice.
- *  3. "none" — no speech available; callers fall back to captions only.
+ * Order, per line:
+ *  1. Recorded — a pre-rendered clip in public/voice/ (see `npm run voice:render`).
+ *     Needs no key and no API at runtime. Replies whose opening sentence was
+ *     recorded speak that sentence; the rest stays on screen.
+ *  2. "server" — live text-to-speech behind /api/voice, only when a voice key
+ *     is configured on the server (never in the client).
+ *  3. "browser" — the Web Speech API. Used only when nothing is recorded, so
+ *     the site never switches between a recorded voice and a robotic one.
  */
+import manifest from "./voice-clips.json";
+import { clipKey, sentences } from "@/lib/voice-lines";
 
 export type VoiceProvider = "server" | "browser" | "none";
 
@@ -14,13 +19,28 @@ export interface SpeakOptions {
   /** Called for each spoken word (browser voices that report boundaries). */
   onWord?: (charIndex: number) => void;
   onStart?: () => void;
-  /** Optional audio graph to route server audio into (for visualisers). */
+  /** Optional audio graph to route audio into (for visualisers). */
   connect?: (el: HTMLAudioElement) => void;
 }
 
 export interface SpeakHandle {
   done: Promise<void>;
   cancel: () => void;
+}
+
+const RECORDED: Record<string, string> = (manifest as { clips?: Record<string, string> }).clips ?? {};
+export const hasRecordedVoice = Object.keys(RECORDED).length > 0;
+
+/** The recording for `text`, or for its longest recorded opening run of sentences. */
+function recordingFor(text: string): string | null {
+  const exact = RECORDED[clipKey(text)];
+  if (exact) return exact;
+  const parts = sentences(text);
+  for (let n = parts.length - 1; n >= 1; n--) {
+    const hit = RECORDED[clipKey(parts.slice(0, n).join(" "))];
+    if (hit) return hit;
+  }
+  return null;
 }
 
 let providerPromise: Promise<VoiceProvider> | null = null;
@@ -35,7 +55,7 @@ export function getVoiceProvider(): Promise<VoiceProvider> {
         if (body.enabled) return "server";
       }
     } catch {
-      /* fall through to the browser voice */
+      /* fall through */
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) return "browser";
     return "none";
@@ -44,20 +64,17 @@ export function getVoiceProvider(): Promise<VoiceProvider> {
 }
 
 const PREFERRED_VOICES = [
-  /Sonia.*Natural/i,
-  /Libby.*Natural/i,
-  /Ryan.*Natural/i,
-  /Natural.*English \(United Kingdom\)/i,
-  /Google UK English Female/i,
-  /Serena/i,
-  /Martha/i,
-  /Daniel/i,
-  /Kate/i,
-  /Samantha/i,
   /Aria.*Natural/i,
   /Jenny.*Natural/i,
-  /Natural/i,
+  /Ava.*Natural/i,
+  /Samantha/i,
   /Google US English/i,
+  /Sonia.*Natural/i,
+  /Libby.*Natural/i,
+  /Natural/i,
+  /Google UK English Female/i,
+  /Serena/i,
+  /Kate/i,
 ];
 
 let cachedVoice: SpeechSynthesisVoice | null | undefined;
@@ -86,7 +103,7 @@ async function pickVoice(): Promise<SpeechSynthesisVoice | null> {
     const match = voices.find((v) => pattern.test(v.name));
     if (match) return (cachedVoice = match);
   }
-  cachedVoice = voices.find((v) => /en-GB/i.test(v.lang)) ?? voices[0] ?? null;
+  cachedVoice = voices.find((v) => /en-US/i.test(v.lang)) ?? voices[0] ?? null;
   return cachedVoice;
 }
 
@@ -102,6 +119,8 @@ export function unlockSpeech() {
   }
 }
 
+let activeAudio: HTMLAudioElement | null = null;
+
 export function stopSpeaking() {
   try {
     window.speechSynthesis?.cancel();
@@ -112,13 +131,11 @@ export function stopSpeaking() {
   activeAudio = null;
 }
 
-let activeAudio: HTMLAudioElement | null = null;
+const liveCache = new Map<string, Promise<Blob | null>>();
 
-const clipCache = new Map<string, Promise<Blob | null>>();
-
-/** Server-voice audio for `text`, fetched once per page visit. */
-function fetchClip(text: string): Promise<Blob | null> {
-  let clip = clipCache.get(text);
+/** Live server-voice audio for `text`, fetched once per page visit. */
+function fetchLive(text: string): Promise<Blob | null> {
+  let clip = liveCache.get(text);
   if (!clip) {
     clip = fetch("/api/voice", {
       method: "POST",
@@ -128,66 +145,81 @@ function fetchClip(text: string): Promise<Blob | null> {
       .then((res) => (res.ok ? res.blob() : null))
       .catch(() => null);
     clip.then((b) => {
-      if (!b) clipCache.delete(text);
+      if (!b) liveCache.delete(text);
     });
-    clipCache.set(text, clip);
+    liveCache.set(text, clip);
   }
   return clip;
 }
 
 /**
- * Starts synthesising lines ahead of time (e.g. the intro's narration the
- * moment the visitor chooses sound) so speech lands in step with the visuals.
- * Does nothing when only the browser voice is available.
+ * Warms lines ahead of time (e.g. the intro's narration the moment the visitor
+ * chooses sound) so speech lands in step with the visuals.
  */
-export async function prefetchSpeech(lines: string[]) {
-  if ((await getVoiceProvider()) !== "server") return;
-  lines.forEach((l) => void fetchClip(l));
+export async function prefetchSpeech(lines: readonly string[]) {
+  const live: string[] = [];
+  for (const line of lines) {
+    const src = recordingFor(line);
+    if (src) void fetch(src).catch(() => {});
+    else live.push(line);
+  }
+  if (live.length && (await getVoiceProvider()) === "server") live.forEach((l) => void fetchLive(l));
+}
+
+function playElement(audio: HTMLAudioElement, options: SpeakOptions, setCancel: (fn: () => void) => void) {
+  audio.crossOrigin = "anonymous";
+  activeAudio = audio;
+  options.connect?.(audio);
+  return new Promise<void>((resolve) => {
+    setCancel(() => {
+      audio.pause();
+      resolve();
+    });
+    audio.onplay = () => options.onStart?.();
+    audio.onended = () => resolve();
+    audio.onerror = () => resolve();
+    audio.play().catch(() => resolve());
+  });
 }
 
 export function speak(text: string, options: SpeakOptions = {}): SpeakHandle {
   let cancelled = false;
   let cancelFn = () => {};
+  const setCancel = (fn: () => void) => {
+    cancelFn = fn;
+  };
 
   const done = (async () => {
+    // 1. A recording of this line (or of its opening sentence)
+    const recorded = recordingFor(text);
+    if (recorded) {
+      await playElement(new Audio(recorded), options, setCancel);
+      return;
+    }
+
+    // 2. Live server voice, when configured
     const provider = await getVoiceProvider();
     if (cancelled) return;
-
     if (provider === "server") {
-      try {
-        const blob = await fetchClip(text);
-        if (!blob) throw new Error("voice provider error");
-        if (cancelled) return;
+      const blob = await fetchLive(text);
+      if (cancelled) return;
+      if (blob) {
         const url = URL.createObjectURL(blob);
-        const audio = new Audio(url);
-        audio.crossOrigin = "anonymous";
-        activeAudio = audio;
-        options.connect?.(audio);
-        await new Promise<void>((resolve) => {
-          cancelFn = () => {
-            audio.pause();
-            resolve();
-          };
-          audio.onplay = () => options.onStart?.();
-          audio.onended = () => resolve();
-          audio.onerror = () => resolve();
-          audio.play().catch(() => resolve());
-        });
+        await playElement(new Audio(url), options, setCancel);
         URL.revokeObjectURL(url);
         return;
-      } catch {
-        /* fall back to the browser voice below */
       }
     }
 
-    if (!("speechSynthesis" in window)) return;
+    // 3. Browser voice — only when nothing is recorded, so the voice never changes mid-visit
+    if (hasRecordedVoice || !("speechSynthesis" in window)) return;
     const voice = await pickVoice();
     if (cancelled) return;
     await new Promise<void>((resolve) => {
       const u = new SpeechSynthesisUtterance(text);
       if (voice) u.voice = voice;
-      u.lang = voice?.lang ?? "en-GB";
-      u.rate = 0.9;
+      u.lang = voice?.lang ?? "en-US";
+      u.rate = 0.92;
       u.pitch = 1;
       u.volume = 1;
       u.onstart = () => options.onStart?.();
@@ -196,10 +228,10 @@ export function speak(text: string, options: SpeakOptions = {}): SpeakHandle {
       };
       u.onend = () => resolve();
       u.onerror = () => resolve();
-      cancelFn = () => {
+      setCancel(() => {
         window.speechSynthesis.cancel();
         resolve();
-      };
+      });
       window.speechSynthesis.speak(u);
     });
   })();
